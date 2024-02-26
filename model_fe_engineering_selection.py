@@ -10,33 +10,22 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import pickle
 
 import warnings
 warnings.filterwarnings('ignore')
 
-# Importar clase de Python para instanciar el modelo KNN
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.metrics import mean_squared_error
 from sklearn.metrics import root_mean_squared_error
 from sklearn.compose import ColumnTransformer
 
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import OrdinalEncoder
-from sklearn.preprocessing import LabelBinarizer
 from sklearn.preprocessing import OneHotEncoder
-
 from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import PowerTransformer
 
 from sklearn.pipeline import Pipeline
 
-from sklearn.preprocessing import PolynomialFeatures
-
-from sklearn.feature_selection import SelectKBest
-from sklearn.feature_selection import r_regression
-
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import PowerTransformer
+from sklearn.feature_selection import VarianceThreshold
 
 # Se definen las variables que contienen la ruta del archivo
 DATA_PATH="C:\\Users\\TTLG-85\\Documents\\DigitalNAO\\ID1"
@@ -78,6 +67,7 @@ bikerpro['is_weekend'] = bikerpro['is_weekend'].astype('category')
 # Crear variable categórica para la hora
 bikerpro['hour_as_category'] = bikerpro['hour'].astype('category')
 
+# Espacificación de las variables numéricas
 numerical_cols = [
     'temperature',
     'humidity',
@@ -103,7 +93,7 @@ bikerpro_numerical = yeo_johnson.fit_transform(bikerpro_numerical)
 # Crear nombres de columnas para las nuevas columnas transformadas
 numerical_cols_transform = [f'{col}_transf' for col in numerical_cols]
 
-# Crear un nuevo DataFrame con las columnas numéricas originales y las transformadas
+# Complementa el DataFrame con las columnas numéricas originales y las transformadas
 bikerpro = pd.concat([bikerpro, pd.DataFrame(bikerpro_numerical, columns=numerical_cols_transform).astype('category')], axis=1)
 
 # Datos ordenados
@@ -112,10 +102,9 @@ X = bikerpro.sort_values(['date', 'hour'])
 # Mostrar resumen de la estructura del archivo
 bikerpro.info()
 
-# Columnas del clima
+# Columnas numéricas del clima
 weather_cols = [
     'temperature', 
-    'humidity',
     'humidity',
     'wind_speed',
     'visibility',
@@ -125,30 +114,8 @@ weather_cols = [
     'snowfall'
     ]
 
-# Columna objectivo a predecir
-target_col = ['rented_bike_count']
-
-# Datos de entrenamiento
-X_train = X.loc[: X.shape[0]-1440,:].drop(target_col, axis=1)
-y_train = X.loc[: X.shape[0]-1440,:][target_col]
-
-# Datos de entrenamiento
-X_test = X.loc[X.shape[0]-1440+1:,:].drop(target_col, axis=1)
-y_test = X.loc[X.shape[0]-1440+1:,:][target_col]
-
-# Define listas de columnas que van a emplearse en el modelado
-weather_cols = [
-    'temperature',
-    'humidity',
-    'wind_speed',
-    'visibility',
-    'dew_point_temperature',
-    'solar_radiation',
-    'rainfall',
-    'snowfall',
- ]
-
-seasons_cols = [
+# Columnas categóricas
+categorical_cols = [
     'seasons',
     'holiday',
     'functioning_day',
@@ -164,17 +131,23 @@ seasons_cols = [
     'snowfall_transf'
 ]
 
-time_cols = ['hour']
+# Columna objectivo a predecir
+target_col = ['rented_bike_count']
+
+# Datos de entrenamiento
+X_train = X.loc[: X.shape[0]-1440,:].drop(target_col, axis=1)
+y_train = X.loc[: X.shape[0]-1440,:][target_col]
+
+# Datos de entrenamiento
+X_test = X.loc[X.shape[0]-1440+1:,:].drop(target_col, axis=1)
+y_test = X.loc[X.shape[0]-1440+1:,:][target_col]
 
 # Lista que tiene todas los grupos de columnas
-non_target_cols = weather_cols + seasons_cols + time_cols
+non_target_cols = weather_cols + categorical_cols
 
-
-# Pipeline para escalar con estandar z-score
+# Pipeline para selección con VarianceThreshold
 numerical_pipe = Pipeline([
-    ('standar_scaler', StandardScaler()),
-    # ----------- Aqui seleccionamos las 4 mejores variables -------- #
-    ('select_k_best',SelectKBest(r_regression, k=4) ),
+    ('variance_threshold', VarianceThreshold())
 ])
 
 # Pipeline para aplicar one hot encoding
@@ -185,15 +158,13 @@ categorical_pipe = Pipeline([
 # Combina ambos procesos en columnas espeficadas en listas
 pre_processor = ColumnTransformer([
     ('numerical', numerical_pipe, weather_cols),
-    ('categorical', categorical_pipe, seasons_cols),
+    ('categorical', categorical_pipe, categorical_cols),
 ], remainder='passthrough')
 
-# comunica al pipeline la lista en el orden que se deben aplicar
-# estos pasos
-
+# Se comunica al pipeline la lista en el orden que se deben aplicar
 pipe_standard_ohe = Pipeline([
     ('transform', pre_processor),
-    ('model', KNeighborsRegressor(n_neighbors=5))
+    ('model', KNeighborsRegressor(n_neighbors=30))
 ])
 
 # Realiza la transformacion de los datos y el ajuste del modelo
@@ -202,10 +173,12 @@ pipe_standard_ohe.fit(X_train[non_target_cols], y_train)
 y_train_pred = pipe_standard_ohe.predict(X_train[non_target_cols])
 y_test_pred = pipe_standard_ohe.predict(X_test[non_target_cols])
 
-# error en conjunto de entrenamiento y prueba
+# Error en conjunto de entrenamiento y prueba
 error_train = root_mean_squared_error(y_train, y_train_pred)
 error_test = root_mean_squared_error(y_test, y_test_pred)
 
-# errores
-print("Error RSME en train:", round(error_train,2) )
-print("Error RSME en test:", round(error_test,2) )
+# Imprime el valor del RMSE para k = 30
+print("Error RSME en train:", round(error_train,2))
+print("Error RSME en test:", round(error_test,2))
+
+pickle.dump(pipe_standard_ohe, open('model_fe_engineering_selection', 'wb'))
